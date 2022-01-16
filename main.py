@@ -29,9 +29,18 @@ with open('blacklist.txt', 'r') as file:
 
 offenderDict={}
 
+def showOffenderStrike(userID):
+  if str(userID) in offenderDict:
+    print(offenderDict[str(userID)].getStrike())
+    user = offenderDict[str(userID)].getStrike()
+    return user
+  else:
+    return False
+
 #remmoves the strikes from a user
 def resetOffender(userID):
   if str(userID) in offenderDict:
+
     offenderDict[str(userID)].strike = 0
     return True
   return False
@@ -40,12 +49,11 @@ def resetOffender(userID):
 def makeOffender(userID):
   #user = Offender(userID, 1)
   offenderDict[f'{userID}']=(Offender(userID, 1))
-  print(offenderDict)
   return True
 
 #updates the amount of stikes of a user
 def updateOffender(userID):
-  print(offenderDict)
+  offenderDict
   if str(userID) in offenderDict:
     offenderDict[str(userID)].strike = int(offenderDict[str(userID)].strike)+1
     return True
@@ -53,12 +61,16 @@ def updateOffender(userID):
 
 def toxicity(message):
 	analyze_request = {
-		'comment': { 'text': f'{message}'},
+		'comment': { 'text': message.content},
 		'requestedAttributes': {'TOXICITY': {}}
 	}
 	response = clientAPI.comments().analyze(body=analyze_request).execute()
 	score = float(response['attributeScores']['TOXICITY']['summaryScore']['value'])
 	return score
+
+def adminOnly(message, error):
+  if isinstance(error, CheckFailure):
+    return "You are not an administrator"
 
 @bot.event
 async def on_ready():
@@ -83,38 +95,48 @@ async def hello(message):
 async def ping(ctx : commands.Context):
     await ctx.send(f"Pong! {round(bot.latency * 1000)}ms")
 
-@bot.command(name = "clear")
-async def clear(ctx, member:discord.Member):
-  if ctx.message.author.server_permissions.administrator:
-    if(resetOffender(member.id)) == False:
-      embed = discord.Embed(title="User Clean", description="This user has no track record.")
-      await ctx.send(embed=embed)
-    else:
-      embed = discord.Embed(title="User Record Wiped", description="This user now has 0 strikes")
-      await ctx.send(embed=embed)
+@bot.command(name = "showstrike", pass_context = True)
+@commands.has_permissions(administrator = True)
+async def showStrike(ctx, member:discord.Member):
+  if(showOffenderStrike(member)) == False:
+    embed = discord.Embed(title="User Clean", description="This user has no track record.")
+    await ctx.send(embed=embed)
   else:
-    embed = discord.Embed(title="Permission Denied", description="You do not have the perms to use this command")
+    embed = discord.Embed(title="User Record", description="This user has " +str(showOffenderStrike(member))+ " strike(s)")
+    await ctx.send(embed=embed)
+@showStrike.error
+async def showStrikeError(message, error):
+	message.send(adminOnly(message,error))
+
+@bot.command(name = "clear")
+@commands.has_permissions(administrator = True)
+async def clear(ctx, member:discord.Member):
+  if(resetOffender(member)) == False:
+    embed = discord.Embed(title="User Clean", description="This user has no track record.")
+    await ctx.send(embed=embed)
+  else:
+    embed = discord.Embed(title="User Record Wiped", description="This user now has 0 strikes")
     await ctx.send(embed=embed)
 
 #mute a user (if the mute role in the server is called "Muted")
-@bot.command(name = "mute", pass_context = True)
+@bot.command(name = "mute")
+@commands.has_permissions(administrator = True)
 async def mute(ctx, member:discord.Member):
-  if ctx.message.author.server_permissions.administrator:
-    role = discord.utils.get(member.server.roles, name ='Muted')
-    await bot.add_roles(member, role)
-    embed = discord.Embed(title = "User muted")
-    await ctx.send(embed = embed)
-  else:
-    embed = discord.Embed(title="Permission Denied", description="You do not have the perms to use this command")
-    await ctx.send(embed=embed)
+
+  role = discord.utils.get(ctx.guild.roles, id = 930857449123094548)
+  await member.add_roles(role)
+
+  embed=discord.Embed(title="User Muted")
+  await ctx.send(embed=embed)
 
 @bot.command(name="unmute")
 @commands.has_permissions(administrator = True)
 async def unmute(ctx, member: discord.Member):
-  role = discord.utils.get(ctx.guild.roles, name = "Muted")
+  mutedRole = discord.utils.get(ctx.guild.roles, id = 930857449123094548)
+  
+  await member.remove_roles(mutedRole)
 
-  await member.remove_roles(role)
-  embed = discord.Embed(title="User unmuted")
+  embed = discord.Embed(title="User Unmuted")
   await ctx.send(embed=embed)
 
 #allows administrators to add words to the blacklist (automatically deleted words)
@@ -153,14 +175,14 @@ async def DM(message):
   await message.channel.send("The blacklist has been sent to direct messages")
 
 @bot.command(name = "strikelist", pass_context = True)
+@commands.has_permissions(administrator = True)
 async def strikeList(message):
-  if message.author.server_permissions.administrator:
-    dm = await message.author.create_dm()
-    await dm.send(offenderDict)
-    await message.channel.send("The list of offenders has been sent to direct messages")
-  else:
-    embed = discord.Embed(title="Permission Denied", description="You do not have the perms to use this command")
-    await message.send(embed=embed)
+  dm = await message.author.create_dm()
+  await dm.send(offenderDict)
+  await message.channel.send("The list of offenders has been sent to direct messages")
+  # else:
+  #   embed = discord.Embed(title="Permission Denied", description="You do not have the perms to use this command")
+  #   await message.send(embed=embed)
 #diplays list of available commands and their purpose when command !help is used
 @bot.command()
 async def help(message):
@@ -173,6 +195,8 @@ async def help(message):
   embed.add_field(name='!blacklist', value='List of blacklisted words sent through DMs')
   embed.add_field(name='!mute', value='Administrators can mute a user')
   embed.add_field(name='!unmute', value='Administrators can unmute a user')
+  embed.add_field(name="!strikelist", value="Admins will be sent a list of offenders through DMs")
+  embed.add_field(name="!showstrike", value="Admins can @ a user to see the number of offences they have")	 
   await message.send(embed=embed)
 
 @bot.event
@@ -190,8 +214,8 @@ async def on_message(message):
   for i in range(len(blacklist)):
     if (str(blacklist[i]) in str(msg_content)):
       await message.delete()
-
-  if toxicity(message) > 0.95:
+  print (str(message.author) +": " + str(message.content) + ' - ' + str(toxicity(message)))
+  if toxicity(message) > 0.9:
     await message.delete()
   
 #reports if a message was edited   
@@ -213,7 +237,7 @@ async def on_message_edit(before, after):
 async def on_message_delete(message):
   message_content = message.content.lower()
   secret = False
-
+  toxic = False
   if not message.author.bot:
     channel = bot.get_channel(903269861671723042)
     with open('blacklist.txt', 'r') as file:
@@ -221,21 +245,26 @@ async def on_message_delete(message):
     for i in range(len(blacklist)):
       if (str(blacklist[i]) in str(message_content)):
         secret = True
+    if toxicity(message)>0.9:
+      toxic = True
     if secret is True:	
-
-      if updateOffender(message.author.id) == False:
-        print(makeOffender(message.author.id))
-      
+      if updateOffender(message.author) == False:
+        makeOffender(message.author)
 
       embed = discord.Embed(title = "Offender warning", colour=discord.Colour.red())
-      embed.add_field(name = str(message.author), value = "Strike: " + str(offenderDict[str(message.author.id)].getStrike()) + "\nReason: Used blacklisted word")
+      embed.add_field(name = str(message.author), value = "Strike: " + str(offenderDict[str(message.author)].getStrike()) + "\nReason: Used blacklisted word")
       await message.channel.send(embed = embed)
         
       embed = discord.Embed(title = "Deleted Message by Richard: Blacklist", colour=discord.Colour.red())	
       embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(f'||{message.content}||'))
       await channel.send(embed = embed)
       
-    elif toxicity(message)>0.95:
+    elif toxic is True:
+      if updateOffender(message.author) == False:
+        makeOffender(message.author)			
+      embed = discord.Embed(title = "Offender warning", colour=discord.Colour.red())
+      embed.add_field(name = str(message.author), value = "Strike: " + str(offenderDict[str(message.author)].getStrike()) + "\nReason: Toxic message")
+      await message.channel.send(embed = embed)			
       embed = discord.Embed (title = "Deleted Message by Richard: Toxic", colour = discord.Colour.red())
       embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(message.content))
       await channel.send(embed = embed)			
