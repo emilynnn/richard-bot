@@ -1,23 +1,58 @@
 #imports
 import discord
-import csv
-import pandas as pd
 import os, os.path
 from discord.ext import commands
 from Ping import _ping
+from offender import Offender
 from discord.ext.commands import Bot, has_permissions, CheckFailure
-
+from googleapiclient import discovery
+import json
 
 #discord token in secrets  
 discord_token = os.environ['TOKEN']
+API_KEY = os.environ['API']
 COGS = 'log.py'
 
 client = discord.Client()
 bot = commands.Bot(command_prefix="!", case_insensitive=True, help_command=None)
 
+clientAPI = discovery.build(
+  "commentanalyzer",
+  "v1alpha1",
+  developerKey = API_KEY,
+  discoveryServiceUrl = "https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1",
+  static_discovery = False,
+)
+
 #blacklist words
 with open('blacklist.txt', 'r') as file:
   blacklist = [line.strip() for line in file]
+
+offenderDict={}
+
+#makes an object for a user that doesnt have a track record yet
+def makeOffender(userID):
+  #user = Offender(userID, 1)
+  offenderDict[f'{userID}']=(Offender(userID, 1))
+  print(offenderDict)
+  return True
+
+#updates the amount of stikes of a user
+def updateOffender(userID):
+  print(offenderDict)
+  if str(userID) in offenderDict:
+    offenderDict[str(userID)].strike = int(offenderDict[str(userID)].strike)+1
+    return True
+  return False
+
+def toxicity(message):
+	analyze_request = {
+		'comment': { 'text': f'{message}'},
+		'requestedAttributes': {'TOXICITY': {}}
+	}
+	response = clientAPI.comments().analyze(body=analyze_request).execute()
+	score = float(response['attributeScores']['TOXICITY']['summaryScore']['value'])
+	return score
 
 @bot.event
 async def on_ready():
@@ -109,6 +144,7 @@ async def help(message):
   embed.add_field(name='!addbl', value='Administators can add words to the blacklist')
   embed.add_field(name='!blacklist', value='List of blacklisted words sent through DMs')
   embed.add_field(name='!mute', value='Administrators can mute a user')
+  embed.add_field(name='!unmute', value='Administrators can unmute a user')
   await message.send(embed=embed)
 
 @bot.event
@@ -126,7 +162,7 @@ async def on_message(message):
   for i in range(len(blacklist)):
     if (str(blacklist[i]) in str(msg_content)):
       await message.delete()
-
+  
 #reports if a message was edited   
 @bot.event
 async def on_message_edit(before, after):
@@ -143,39 +179,26 @@ async def on_message_edit(before, after):
 
 #reports if a message was deleted
 @bot.event
-async def on_message_delete(message, member:discord.Member):
+async def on_message_delete(message):
   message_content = message.content.lower()
   secret = False
+
   if not message.author.bot:
     channel = bot.get_channel(903269861671723042)
-    with open(f'{message.guild.id}blacklist.txt', 'r') as file:
+    with open('blacklist.txt', 'r') as file:
       blacklist = [line.strip() for line in file]
     for i in range(len(blacklist)):
       if (str(blacklist[i]) in str(message_content)):
         secret = True
     if secret is True:	
-      df = pd.read_csv('offenders.csv')
-      
-      with open('offenders.csv', 'r') as f:
-        reader = csv.reader(f)
 
-        counter=0
-        for row in reader:
-          if(message.author.id == row[1] and counter!=1):
-            df.loc[i, 'strike'] = int(row[2])+1 
-            counter=1
-            
-            if(row[2]==3):
-              role = discord.utils.get(member.server.roles, name ='Muted')
-              await bot.add_roles(member, role)
-              embed = discord.Embed(title = "User muted", description="Offender has hit 3 stikes.")
-              await bot.say(embed = embed)
-            
-        if (counter!=1):
-          with open('offenders.csv', 'a'):
-            writer = csv.write
-            data = [message.author.id, 1]
-            writer.writerow(data)
+      if updateOffender(message.author.id) == False:
+        print(makeOffender(message.author.id))
+      
+
+      embed = discord.Embed(title = "Offender warning", colour=discord.Colour.red())
+      embed.add_field(name = str(message.author), value = "Strike: " + str(offenderDict[str(message.author.id)].getStrike()) + "\nReason: Used blacklisted word")
+      await message.channel.send(embed = embed)
         
       embed = discord.Embed(title = "Deleted Message by Richard", colour=discord.Colour.red())	
       embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(f'||{message.content}||'))
