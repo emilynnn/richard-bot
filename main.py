@@ -2,6 +2,7 @@ import discord
 import os
 from discord.ext import commands
 from Ping import _ping
+from discord.ext.commands import Bot, has_permissions, CheckFailure
 #from discord_slash import SlashCommand
 
 #discord token in secrets  
@@ -35,6 +36,40 @@ async def hello(message):
 async def ping(ctx : commands.Context):
     await ctx.send(f"Pong! {round(bot.latency * 1000)}ms")
 
+#allows administrators to add words to the blacklist (automatically deleted words)
+@bot.command(name = 'addbl', pass_context=True)
+@has_permissions(administrator = True)
+async def _addbl(ctx):
+  message_respond=""
+  await ctx.send('What words would you like to add to the blacklist? Send the message "done" when you are finished.')
+  
+  f = open("blacklist.txt", "a")
+  while(message_respond!='done'):
+
+    def check(msg):
+      return msg.author == ctx.author and msg.channel == ctx.channel
+
+    message_respond = await bot.wait_for("message", check = check, timeout = 60)
+    message_respond = message_respond.content.lower()
+    if (message_respond!='done'):
+      f.write(message_respond+"\n")
+      f.flush()
+  f.close()
+  await ctx.send("New words have been added to the blacklist")
+
+@bot.command(name = "blacklist", pass_context = True)
+async def DM(message):
+  f = open("blacklist.txt", 'r')
+  file_contents = f.read()
+
+  dm = await message.author.create_dm()
+  await dm.send(file_contents)
+  f.close
+
+  await message.channel.send("The blacklist has been sent to dms")
+
+ 
+#diplays list of available commands and their purpose when command !help is used
 @bot.command()
 async def help(message):
   embed = discord.Embed(colour=discord.Colour.green())
@@ -42,6 +77,7 @@ async def help(message):
   embed.add_field(name='!help',value='Shows this message')
   embed.add_field(name='!hello',value='I say hello to you')
   embed.add_field(name='!ping',value='Shows the ping of the bot')
+  embed.add_field(value='Administators can add words to the blacklist')
   await message.send(embed=embed)
 
 @bot.event
@@ -91,7 +127,7 @@ async def on_message_delete(message):
       embed = discord.Embed (title = "Deleted Message", colour = discord.Colour.green())
       embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(message.content))
       await channel.send(embed = embed)
-    
+
 #run Ping code: makes web server which gets pings every 5 mins
 _ping()
 
