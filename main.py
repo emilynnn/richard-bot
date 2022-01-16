@@ -6,7 +6,6 @@ from Ping import _ping
 from offender import Offender
 from discord.ext.commands import Bot, has_permissions, CheckFailure
 from googleapiclient import discovery
-import json
 
 #discord token in secrets  
 discord_token = os.environ['TOKEN']
@@ -29,6 +28,13 @@ with open('blacklist.txt', 'r') as file:
   blacklist = [line.strip() for line in file]
 
 offenderDict={}
+
+#remmoves the strikes from a user
+def resetOffender(userID):
+  if str(userID) in offenderDict:
+    offenderDict[str(userID)].strike = 0
+    return True
+  return False
 
 #makes an object for a user that doesnt have a track record yet
 def makeOffender(userID):
@@ -77,6 +83,19 @@ async def hello(message):
 async def ping(ctx : commands.Context):
     await ctx.send(f"Pong! {round(bot.latency * 1000)}ms")
 
+@bot.command(name = "clear")
+async def clear(ctx, member:discord.Member):
+  if ctx.message.author.server_permissions.administrator:
+    if(resetOffender(member.id)) == False:
+      embed = discord.Embed(title="User Clean", description="This user has no track record.")
+      await ctx.send(embed=embed)
+    else:
+      embed = discord.Embed(title="User Record Wiped", description="This user now has 0 strikes")
+      await ctx.send(embed=embed)
+  else:
+    embed = discord.Embed(title="Permission Denied", description="You do not have the perms to use this command")
+    await ctx.send(embed=embed)
+
 #mute a user (if the mute role in the server is called "Muted")
 @bot.command(name = "mute", pass_context = True)
 async def mute(ctx, member:discord.Member):
@@ -90,7 +109,7 @@ async def mute(ctx, member:discord.Member):
     await ctx.send(embed=embed)
 
 @bot.command(name="unmute")
-@commands.has_permissions(manage_messages = True)
+@commands.has_permissions(administrator = True)
 async def unmute(ctx, member: discord.Member):
   role = discord.utils.get(ctx.guild.roles, name = "Muted")
 
@@ -133,6 +152,15 @@ async def DM(message):
 
   await message.channel.send("The blacklist has been sent to direct messages")
 
+@bot.command(name = "strikelist", pass_context = True)
+async def strikeList(message):
+  if message.author.server_permissions.administrator:
+    dm = await message.author.create_dm()
+    await dm.send(offenderDict)
+    await message.channel.send("The list of offenders has been sent to direct messages")
+  else:
+    embed = discord.Embed(title="Permission Denied", description="You do not have the perms to use this command")
+    await message.send(embed=embed)
 #diplays list of available commands and their purpose when command !help is used
 @bot.command()
 async def help(message):
@@ -162,6 +190,9 @@ async def on_message(message):
   for i in range(len(blacklist)):
     if (str(blacklist[i]) in str(msg_content)):
       await message.delete()
+
+  if toxicity(message) > 0.95:
+    await message.delete()
   
 #reports if a message was edited   
 @bot.event
@@ -200,9 +231,15 @@ async def on_message_delete(message):
       embed.add_field(name = str(message.author), value = "Strike: " + str(offenderDict[str(message.author.id)].getStrike()) + "\nReason: Used blacklisted word")
       await message.channel.send(embed = embed)
         
-      embed = discord.Embed(title = "Deleted Message by Richard", colour=discord.Colour.red())	
+      embed = discord.Embed(title = "Deleted Message by Richard: Blacklist", colour=discord.Colour.red())	
       embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(f'||{message.content}||'))
       await channel.send(embed = embed)
+      
+    elif toxicity(message)>0.95:
+      embed = discord.Embed (title = "Deleted Message by Richard: Toxic", colour = discord.Colour.red())
+      embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(message.content))
+      await channel.send(embed = embed)			
+
     else:
       embed = discord.Embed (title = "Deleted Message", colour = discord.Colour.green())
       embed.add_field(name = 'By ' + str(message.author) + ' in ' + str(message.channel)+':', value = str(message.content))
